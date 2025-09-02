@@ -1,0 +1,212 @@
+import streamlit as st
+import os
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+import html
+
+st.set_page_config(page_title="Tradutor com Gemini", page_icon="🌐", layout="wide")
+
+st.title("Traduza seus textos para os idiomas que quiser.")
+st.markdown("---")
+
+st.sidebar.header("Configure seu modelo:")
+
+api_key = st.sidebar.text_input(
+    "🔑 Google API key",
+    type="password",
+    placeholder="Digite sua chave de API aqui",
+    help="Aqui você vai digitar a chave gerada para você",
+)
+
+temperatura = st.sidebar.slider(
+    "Temperatura",
+    min_value=0.0,
+    max_value=2.0,
+    value=0.7,
+    step=0.1,
+    help="Controla a criatividade do modelo (0.0 = mais conservador, 2.0 = mais criativo)",
+)
+
+max_tokens = st.sidebar.slider(
+    "Máximo de Tokens",
+    min_value=50,
+    max_value=4000,
+    value=1000,
+    step=50,
+    help="Número máximo de tokens na resposta",
+)
+
+idiomas_opcoes = [
+    "Português (Brasil)",
+    "Inglês",
+    "Espanhol",
+    "Francês",
+    "Alemão",
+    "Italiano",
+    "Japonês",
+    "Chinês",
+    "Russo",
+    "Árabe",
+    "Hindi",
+    "Coreano",
+    "Holandês",
+    "Sueco",
+    "Norueguês",
+]
+
+idioma_origem = st.sidebar.selectbox(
+    "🌍 Idioma de Origem",
+    options=idiomas_opcoes,
+    index=0,  # Português (Brasil) como padrão
+)
+
+idioma_destino = st.sidebar.selectbox(
+    "🌍 Idioma de Destino",
+    options=idiomas_opcoes,
+    index=1,  # Inglês como padrão
+)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Dicas para você!")
+st.sidebar.info(
+    """
+- Use temperatura baixa (0.1-0.3) para traduções mais precisas
+- Use temperatura alta (0.7-1.0) para traduções mais criativas
+- Máximo de tokens controla o tamanho da resposta
+- Selecione idiomas diferentes para origem e destino
+- O app detecta automaticamente se precisa traduzir
+"""
+)
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader(f"Texto original em :rainbow[{idioma_origem}]")
+
+    # Definir placeholder baseado no idioma selecionado
+    placeholders = {
+        "Português (Brasil)": "Olá! Como você está? Espero que esteja tendo um ótimo dia!",
+        "Inglês": "Hi! How are you? I hope you're having a great day!",
+        "Espanhol": "¡Hola! ¿Cómo estás? ¡Espero que estés teniendo un gran día!",
+        "Francês": "Salut! Comment allez-vous? J'espère que vous passez une excellente journée!",
+        "Alemão": "Hallo! Wie geht es dir? Ich hoffe, du hast einen tollen Tag!",
+        "Italiano": "Ciao! Come stai? Spero che tu stia passando una bella giornata!",
+        "Japonês": "こんにちは！元気ですか？素晴らしい一日を過ごしていることを願っています！",
+        "Chinês": "你好！你好吗？希望你今天过得很愉快！",
+    }
+
+    placeholder_texto = placeholders.get(idioma_origem, "Digite seu texto aqui...")
+
+    texto_original = st.text_area(
+        f"Digite o texto em {idioma_origem}:",
+        height=300,
+        placeholder=placeholder_texto,
+        key="input_text",
+    )
+
+with col2:
+    st.subheader(f"Tradução para :rainbow[{idioma_destino}]")
+
+    if "traducao" not in st.session_state:
+        st.session_state.traducao = ""
+
+    traducao_placeholder = st.empty()
+
+col_center = st.columns([1, 1, 1])
+with col_center[1]:
+    botao_traduzir = st.button("Traduzir", type="primary", use_container_width=True)
+
+
+def traduzir_texto(api_key, texto, idioma_origem, idioma_destino, temp, tokens):
+    try:
+        # Verificar se os idiomas são diferentes
+        if idioma_origem == idioma_destino:
+            return "⚠️ O idioma de origem e destino são iguais. Por favor, selecione idiomas diferentes."
+
+        os.environ["GOOGLE_API_KEY"] = api_key
+
+        modelo = init_chat_model(
+            "gemini-2.0-flash-exp",
+            model_provider="google_genai",
+            temperature=temp,
+            max_tokens=tokens,
+        )
+
+        system_template = (
+            f"Você é um tradutor profissional especializado. "
+            f"Traduza o texto do {idioma_origem} para {idioma_destino}. "
+            f"Seja preciso, natural e mantenha o contexto e o tom original da mensagem. "
+            f"Se o texto já estiver no idioma de destino, informe isso ao usuário."
+        )
+
+        prompt_template = ChatPromptTemplate.from_messages(
+            [("system", system_template), ("user", "{text}")]
+        )
+
+        prompt = prompt_template.invoke({"text": texto})
+
+        response = modelo.invoke(prompt)
+        return response.content
+
+    except Exception as e:
+        return f"Erro na tradução: {str(e)}"
+
+
+if botao_traduzir:
+    if not api_key:
+        st.error("Por favor, insira sua chave da API do Google Gemini na sidebar!")
+    elif not texto_original.strip():
+        st.warning("Por favor, digite um texto para traduzir!")
+    elif idioma_origem == idioma_destino:
+        st.warning("Por favor, selecione idiomas diferentes para origem e destino!")
+    else:
+        with st.spinner(f"Traduzindo de {idioma_origem} para {idioma_destino}..."):
+            traducao = traduzir_texto(
+                api_key,
+                texto_original,
+                idioma_origem,
+                idioma_destino,
+                temperatura,
+                max_tokens,
+            )
+            st.session_state.traducao = traducao
+
+with col2:
+    if st.session_state.traducao:
+        traducao_placeholder.text_area(
+            "Resultado da Tradução:",
+            value=st.session_state.traducao,
+            height=300,
+            key="output_text",
+        )
+
+        if st.button("Copiar tradução"):
+            # Store in session state for JavaScript copy function
+            st.session_state.to_copy = st.session_state.traducao
+            st.success("Tradução copiada!")
+            # Add JavaScript to actually copy to clipboard
+            # Escape the text to prevent JavaScript injection
+            escaped_text = (
+                html.escape(st.session_state.traducao)
+                .replace("\n", "\\n")
+                .replace('"', '\\"')
+            )
+            st.components.v1.html(
+                f"""
+                <script>
+                navigator.clipboard.writeText("{escaped_text}");
+                </script>
+            """,
+                height=0,
+            )
+
+st.markdown("---")
+st.markdown(
+    """
+    <div style='text-align: center; color: gray;'>
+    Desenvolvido por Camila usando Streamlit e Google Gemini.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
